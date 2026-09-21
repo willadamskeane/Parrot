@@ -90,9 +90,49 @@ enum AnalysisError: LocalizedError {
     }
 }
 
-/// Calls the Claude API (Haiku — fastest model) for low-latency structured insights.
+/// Curated Claude models exposed in Settings. Custom IDs remain available so
+/// users are not blocked when Anthropic ships a model before Parrot updates.
+enum ClaudeModelCatalog {
+    struct Model {
+        let id: String
+        let label: String
+        let inputUSDPerMTok: Double
+        let outputUSDPerMTok: Double
+    }
+
+    static let defaultModel = "claude-haiku-4-5"
+
+    static let models: [Model] = [
+        Model(id: defaultModel,
+              label: "Haiku 4.5 — $1 / $5 per MTok",
+              inputUSDPerMTok: 1, outputUSDPerMTok: 5),
+        Model(id: "claude-sonnet-5",
+              label: "Sonnet 5 — $2 / $10 per MTok",
+              inputUSDPerMTok: 2, outputUSDPerMTok: 10),
+        Model(id: "claude-opus-5",
+              label: "Opus 5 — $5 / $25 per MTok",
+              inputUSDPerMTok: 5, outputUSDPerMTok: 25),
+        Model(id: "claude-fable-5-1",
+              label: "Fable 5.1 — $10 / $50 per MTok",
+              inputUSDPerMTok: 10, outputUSDPerMTok: 50),
+    ]
+
+    static var ids: [String] { models.map(\.id) }
+
+    static func pricing(for id: String) -> (input: Double, output: Double)? {
+        guard let model = models.first(where: { $0.id == id }) else { return nil }
+        return (model.inputUSDPerMTok, model.outputUSDPerMTok)
+    }
+}
+
+/// Calls the Claude API for low-latency structured insights.
 final class ClaudeAnalysisProvider: AnalysisProvider {
-    static let model = "claude-haiku-4-5"
+    /// Read on every request so a Settings change applies without restarting.
+    static var model: String {
+        let stored = UserDefaults.standard.string(forKey: "copilotClaudeModel")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stored.flatMap { $0.isEmpty ? nil : $0 } ?? ClaudeModelCatalog.defaultModel
+    }
     private let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
 
     var isConfigured: Bool {

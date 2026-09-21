@@ -30,6 +30,7 @@ enum ProfileTest {
         testHallucinationFilter()
         testWAVEncoder()
         testAIUsageCost()
+        testClaudeModelSelection()
         testPermissionFlow()
         testMicWatchdog()
         testModelFolderMatch()
@@ -383,7 +384,49 @@ enum ProfileTest {
         let splitDecoded = (try? JSONEncoder().encode(split)).flatMap { try? JSONDecoder().decode(AIUsage.self, from: $0) }
         check("split round-trips", splitDecoded?.reports == split.reports && splitDecoded?.reportsProvider == "ollama")
 
+        // Claude pricing follows the selected model instead of always assuming
+        // Haiku. 1M in + 200k out = $4 on Sonnet 5.
+        var sonnet = AIUsage()
+        sonnet.copilotModel = "claude-sonnet-5"
+        sonnet.copilotProvider = "claude"
+        sonnet.copilot = AITokenTotals(inputTokens: 1_000_000, outputTokens: 200_000, calls: 1)
+        let sonnetItem = sonnet.costBreakdown().first
+        check("sonnet 5 pricing follows model", abs((sonnetItem?.usd ?? -1) - 4.00) < 0.0001)
 
+        var unknownClaude = AIUsage()
+        unknownClaude.copilotModel = "claude-future-custom"
+        unknownClaude.copilotProvider = "claude"
+        unknownClaude.copilot = AITokenTotals(inputTokens: 1_000, outputTokens: 100, calls: 1)
+        let unknownItem = unknownClaude.costBreakdown().first
+        check("unknown Claude pricing is not guessed",
+              unknownItem?.usd == 0 && unknownItem?.detail.contains("rates not tracked") == true)
+    }
+
+    static func testClaudeModelSelection() {
+        let key = "copilotClaudeModel"
+        let previous = UserDefaults.standard.string(forKey: key)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        UserDefaults.standard.removeObject(forKey: key)
+        check("Claude defaults to Haiku 4.5",
+              ClaudeAnalysisProvider.model == ClaudeModelCatalog.defaultModel)
+        UserDefaults.standard.set("claude-sonnet-5", forKey: key)
+        check("Claude selection is read from settings",
+              ClaudeAnalysisProvider.model == "claude-sonnet-5")
+        UserDefaults.standard.set("  claude-fable-5-1  ", forKey: key)
+        check("Claude custom model id is trimmed",
+              ClaudeAnalysisProvider.model == "claude-fable-5-1")
+        check("Claude catalog includes current four choices",
+              Set(ClaudeModelCatalog.ids) == [
+                "claude-haiku-4-5", "claude-sonnet-5",
+                "claude-opus-5", "claude-fable-5-1",
+              ])
     }
 
     // The issue-#12 mic watchdog: sustained exact-zero input means the OS cut

@@ -7,12 +7,9 @@ struct AITokenTotals: Codable, Equatable {
     var calls = 0
 }
 
-/// Estimated pricing constants. Copilot rates verified against the claude-api
-/// skill on 2026-07-02 — update here when providers change pricing.
+/// Estimated pricing constants. Claude rates live in ClaudeModelCatalog so the
+/// selected model and the meeting cost row stay in sync.
 enum AIPricing {
-    /// claude-haiku-4-5: $1.00 / 1M input tokens, $5.00 / 1M output tokens.
-    static let haikuInputUSDPerMTok = 1.00
-    static let haikuOutputUSDPerMTok = 5.00
     /// Groq whisper-large-v3-turbo: $0.04 per audio hour.
     static let groqUSDPerAudioHour = 0.04
     /// Deepgram Nova-3 streaming: $0.29 per audio hour per stream — matches the
@@ -105,8 +102,14 @@ struct AIUsage: Codable {
                             detail: tokens + " · rates not tracked", usd: 0)
         default:
             // Claude (nil = meetings recorded before provider selection).
-            let usd = Double(totals.inputTokens) / 1_000_000 * AIPricing.haikuInputUSDPerMTok
-                + Double(totals.outputTokens) / 1_000_000 * AIPricing.haikuOutputUSDPerMTok
+            // Unknown/custom IDs are deliberately not guessed: a wrong dollar
+            // estimate is worse than saying the rate is not tracked.
+            guard let rate = ClaudeModelCatalog.pricing(for: model) else {
+                return LineItem(label: "\(prefix) \(model)",
+                                detail: tokens + " · rates not tracked", usd: 0)
+            }
+            let usd = Double(totals.inputTokens) / 1_000_000 * rate.input
+                + Double(totals.outputTokens) / 1_000_000 * rate.output
             return LineItem(label: "\(prefix) \(model)", detail: tokens, usd: usd)
         }
     }
