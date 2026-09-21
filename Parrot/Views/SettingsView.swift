@@ -51,6 +51,7 @@ struct SettingsView: View {
     @AppStorage("appearance") private var appearance = Appearance.system
     @AppStorage("copilotEnabled") private var copilotEnabled = false
     @AppStorage("copilotProvider") private var copilotProvider = CopilotProviderKind.claude.rawValue
+    @AppStorage("copilotClaudeModel") private var copilotClaudeModel = ClaudeModelCatalog.defaultModel
     @AppStorage("copilotPace") private var copilotPace = CopilotPace.fast.rawValue
     @AppStorage("copilotWindow") private var copilotWindow = CopilotWindow.standard.rawValue
     /// "" = same backend as live cards.
@@ -58,6 +59,8 @@ struct SettingsView: View {
     @AppStorage("copilotOllamaModel") private var copilotOllamaModel = "llama3.2:3b"
     @AppStorage("copilotCustomBaseURL") private var copilotCustomBaseURL = ""
     @AppStorage("copilotCustomModel") private var copilotCustomModel = ""
+    /// True after picking "Custom…" in the Claude model dropdown.
+    @State private var claudeCustomModelEditing = false
     /// True after picking "Custom…" in the Ollama model dropdown, so the free
     /// text field stays visible even while the typed name matches nothing.
     @State private var ollamaCustomModelEditing = false
@@ -95,7 +98,7 @@ struct SettingsView: View {
     private var settingsFingerprint: String {
         "\(selectedModel)|\(appearance)|\(copilotEnabled)|\(transcriptionLanguage)|"
             + "\(customVocabulary)|\(echoCancellation)|\(transcriptionBackend)|\(polishAfterCall)|"
-            + "\(copilotPace)|\(copilotWindow)|\(livePreview)"
+            + "\(copilotPace)|\(copilotWindow)|\(copilotClaudeModel)|\(livePreview)"
     }
 
     private func flashSavedToast() {
@@ -475,8 +478,27 @@ struct SettingsView: View {
     private func providerConfig(for kind: CopilotProviderKind) -> some View {
                 switch kind {
                 case .claude:
+                    Picker("Model", selection: claudeModelSelection) {
+                        ForEach(ClaudeModelCatalog.models, id: \.id) { entry in
+                            Text(entry.label).tag(entry.id)
+                        }
+                        Divider()
+                        Text("Custom…").tag("custom")
+                    }
+                    .pickerStyle(.menu)
+
+                    if showsClaudeCustomField {
+                        LabeledContent("Model ID") {
+                            TextField("", text: $copilotClaudeModel, prompt: Text("claude-…"))
+                                .labelsHidden()
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 240)
+                        }
+                        Hint("Sent to Anthropic exactly as entered. Use this for newly released or account-specific Claude model IDs.")
+                    }
+
                     HStack(spacing: 6) {
-                        Hint("Best quality. Needs a key — transcript text is sent, audio never.")
+                        Hint("Anthropic cloud. Needs a key — transcript text is sent, audio never.")
                         Button("Open API Keys") { section = .apiKeys }
                             .buttonStyle(.link)
                             .font(Theme.Typography.secondary)
@@ -526,6 +548,29 @@ struct SettingsView: View {
                         hint: "Any OpenAI-compatible server: OpenAI, Gemini, Groq, OpenRouter, LM Studio… Costs aren't estimated for custom servers."
                     )
                 }
+    }
+
+    /// Dropdown selection for Claude: catalog id, or "custom" when the stored
+    /// model is not in the curated list (or the user explicitly picked Custom…).
+    private var claudeModelSelection: Binding<String> {
+        Binding(
+            get: {
+                if claudeCustomModelEditing { return "custom" }
+                return ClaudeModelCatalog.ids.contains(copilotClaudeModel) ? copilotClaudeModel : "custom"
+            },
+            set: { picked in
+                if picked == "custom" {
+                    claudeCustomModelEditing = true
+                } else {
+                    claudeCustomModelEditing = false
+                    copilotClaudeModel = picked
+                }
+            }
+        )
+    }
+
+    private var showsClaudeCustomField: Bool {
+        claudeCustomModelEditing || !ClaudeModelCatalog.ids.contains(copilotClaudeModel)
     }
 
     /// Dropdown selection for the Ollama model: catalog id, or "custom" when the
