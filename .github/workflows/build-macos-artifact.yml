@@ -1,0 +1,64 @@
+name: Build macOS artifact
+
+on:
+  push:
+    branches:
+      - build/macos-artifact
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out merged source
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Run logic harness
+        run: make test
+
+      - name: Build app bundle
+        run: make app VERSION=0.17.1
+
+      - name: Package DMG and app ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          ditto -c -k --keepParent dist/Parrot.app dist/Parrot-0.17.1-custom.app.zip
+
+          stage="$(mktemp -d)"
+          cp -R dist/Parrot.app "$stage/"
+          ln -s /Applications "$stage/Applications"
+          hdiutil create \
+            -volname "Parrot" \
+            -srcfolder "$stage" \
+            -ov \
+            -format UDZO \
+            dist/Parrot-0.17.1-custom.dmg
+          rm -rf "$stage"
+
+          shasum -a 256 \
+            dist/Parrot-0.17.1-custom.dmg \
+            dist/Parrot-0.17.1-custom.app.zip \
+            > dist/SHA256SUMS.txt
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Parrot-macOS-custom
+          path: |
+            dist/Parrot-0.17.1-custom.dmg
+            dist/Parrot-0.17.1-custom.app.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
